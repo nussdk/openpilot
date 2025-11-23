@@ -10,9 +10,21 @@
 #include <QStackedWidget>
 #include <QWidget>
 
-#include "selfdrive/ui/ui.h"
 #include "selfdrive/ui/qt/util.h"
+
+#ifdef SUNNYPILOT
+#include "selfdrive/ui/sunnypilot/ui.h"
+#include "selfdrive/ui/sunnypilot/qt/widgets/controls.h"
+#define ListWidget ListWidgetSP
+#define ParamControl ParamControlSP
+#define ButtonControl ButtonControlSP
+#define ButtonParamControl ButtonParamControlSP
+#define ToggleControl ToggleControlSP
+#define LabelControl LabelControlSP
+#else
+#include "selfdrive/ui/ui.h"
 #include "selfdrive/ui/qt/widgets/controls.h"
+#endif
 
 // ********** settings window + top-level panels **********
 class SettingsWindow : public QFrame {
@@ -30,8 +42,9 @@ signals:
   void reviewTrainingGuide();
   void showDriverView();
   void expandToggleDescription(const QString &param);
+  void scrollToToggle(const QString &param);
 
-private:
+protected:
   QPushButton *sidebar_alert_widget;
   QWidget *sidebar_widget;
   QButtonGroup *nav_btns;
@@ -47,14 +60,31 @@ signals:
   void reviewTrainingGuide();
   void showDriverView();
 
-private slots:
+protected slots:
   void poweroff();
   void reboot();
   void updateCalibDescription();
 
-private:
+protected:
   Params params;
   ButtonControl *pair_device;
+  ButtonControl *resetCalibBtn;
+};
+
+class InfiniteCableTogglesPanel : public ListWidget {
+  Q_OBJECT
+public:
+  explicit InfiniteCableTogglesPanel(SettingsWindow *parent);
+
+public slots:
+  void expandToggleDescription(const QString &param);
+  void scrollToToggle(const QString &param);
+
+protected:
+  void showEvent(QShowEvent *event) override;
+  Params params;
+  std::map<std::string, ParamControl*> toggles;
+  OptionControlSP *steer_offset_control = nullptr;
 };
 
 class TogglesPanel : public ListWidget {
@@ -65,16 +95,17 @@ public:
 
 public slots:
   void expandToggleDescription(const QString &param);
+  void scrollToToggle(const QString &param);
 
-private slots:
-  void updateState(const UIState &s);
+protected slots:
+  virtual void updateState(const UIState &s);
 
-private:
+protected:
   Params params;
   std::map<std::string, ParamControl*> toggles;
   ButtonParamControl *long_personality_setting;
 
-  void updateToggles();
+  virtual void updateToggles();
 };
 
 class SoftwarePanel : public ListWidget {
@@ -82,9 +113,9 @@ class SoftwarePanel : public ListWidget {
 public:
   explicit SoftwarePanel(QWidget* parent = nullptr);
 
-private:
+protected:
   void showEvent(QShowEvent *event) override;
-  void updateLabels();
+  virtual void updateLabels();
   void checkForUpdates();
 
   bool is_onroad = false;
@@ -98,3 +129,6 @@ private:
   Params params;
   ParamWatcher *fs_watch;
 };
+
+// Forward declaration
+class FirehosePanel;

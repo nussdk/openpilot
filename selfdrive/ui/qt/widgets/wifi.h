@@ -1,10 +1,9 @@
 #pragma once
 
 #include <QFrame>
-#include <QStackedLayout>
 #include <QWidget>
 
-#include "selfdrive/ui/ui.h"
+#include "selfdrive/ui/sunnypilot/qt/offroad/settings/sunnylink/community_widget.h"
 
 class WiFiPromptWidget : public QFrame {
   Q_OBJECT
@@ -12,12 +11,9 @@ class WiFiPromptWidget : public QFrame {
 public:
   explicit WiFiPromptWidget(QWidget* parent = 0);
 
+private:
+  SunnylinkCommunityPopup *community_popup;
+
 signals:
   void openSettings(int index = 0, const QString &param = "");
-
-public slots:
-  void updateState(const UIState &s);
-
-protected:
-  QStackedLayout *stack;
 };

@@ -9,16 +9,17 @@
 #include "common/swaglog.h"
 #include "common/util.h"
 #include "common/watchdog.h"
+#include "qt/util.h"
 #include "system/hardware/hw.h"
 
 #define BACKLIGHT_DT 0.05
 #define BACKLIGHT_TS 10.00
 
-static void update_sockets(UIState *s) {
+void update_sockets(UIState *s) {
   s->sm->update(0);
 }
 
-static void update_state(UIState *s) {
+void update_state(UIState *s) {
   SubMaster &sm = *(s->sm);
   UIScene &scene = s->scene;
 
@@ -54,12 +55,14 @@ static void update_state(UIState *s) {
   }
   if (sm.updated("wideRoadCameraState")) {
     auto cam_state = sm["wideRoadCameraState"].getWideRoadCameraState();
-    float scale = (cam_state.getSensor() == cereal::FrameData::ImageSensor::AR0231) ? 6.0f : 1.0f;
-    scene.light_sensor = std::max(100.0f - scale * cam_state.getExposureValPercent(), 0.0f);
+    scene.light_sensor = std::max(100.0f - cam_state.getExposureValPercent(), 0.0f);
   } else if (!sm.allAliveAndValid({"wideRoadCameraState"})) {
     scene.light_sensor = -1;
   }
   scene.started = sm["deviceState"].getDeviceState().getStarted() && scene.ignition;
+
+  auto params = Params();
+  scene.recording_audio = params.getBool("RecordAudio") && scene.started;
 }
 
 void ui_update_params(UIState *s) {
@@ -68,14 +71,35 @@ void ui_update_params(UIState *s) {
 }
 
 void UIState::updateStatus() {
-  if (scene.started && sm->updated("selfdriveState")) {
+  if (scene.started && (sm->updated("selfdriveState") || sm->updated("selfdriveStateSP"))) {
     auto ss = (*sm)["selfdriveState"].getSelfdriveState();
+    auto mads = (*sm)["selfdriveStateSP"].getSelfdriveStateSP().getMads();
     auto state = ss.getState();
-    if (state == cereal::SelfdriveState::OpenpilotState::PRE_ENABLED || state == cereal::SelfdriveState::OpenpilotState::OVERRIDING) {
+    auto state_mads = mads.getState();
+    if (state == cereal::SelfdriveState::OpenpilotState::PRE_ENABLED || state == cereal::SelfdriveState::OpenpilotState::OVERRIDING ||
+        state_mads == cereal::ModularAssistiveDrivingSystem::ModularAssistiveDrivingSystemState::PAUSED ||
+        state_mads == cereal::ModularAssistiveDrivingSystem::ModularAssistiveDrivingSystemState::OVERRIDING) {
       status = STATUS_OVERRIDE;
     } else {
-      status = ss.getEnabled() ? STATUS_ENGAGED : STATUS_DISENGAGED;
+      if (mads.getAvailable()) {
+        if (mads.getEnabled() && ss.getEnabled()) {
+          status = STATUS_ENGAGED;
+        } else if (mads.getEnabled()) {
+          status = STATUS_LAT_ONLY;
+        } else if (ss.getEnabled()) {
+          status = STATUS_LONG_ONLY;
+        } else {
+          status = STATUS_DISENGAGED;
+        }
+      } else {
+        status = ss.getEnabled() ? STATUS_ENGAGED : STATUS_DISENGAGED;
+      }
     }
+  }
+
+  if (engaged() != engaged_prev) {
+    engaged_prev = engaged();
+    emit engagedChanged(engaged());
   }
 
   // Handle onroad/offroad transition
@@ -98,13 +122,16 @@ UIState::UIState(QObject *parent) : QObject(parent) {
   prime_state = new PrimeState(this);
   language = QString::fromStdString(Params().get("LanguageSetting"));
 
+#ifndef SUNNYPILOT
   // update timer
   timer = new QTimer(this);
   QObject::connect(timer, &QTimer::timeout, this, &UIState::update);
   timer->start(1000 / UI_FREQ);
+#endif
 }
 
 void UIState::update() {
+#ifndef SUNNYPILOT
   update_sockets(this);
   update_state(this);
   updateStatus();
@@ -113,13 +140,15 @@ void UIState::update() {
     watchdog_kick(nanos_since_boot());
   }
   emit uiUpdate(*this);
+#endif
 }
 
 Device::Device(QObject *parent) : brightness_filter(BACKLIGHT_OFFROAD, BACKLIGHT_TS, BACKLIGHT_DT), QObject(parent) {
   setAwake(true);
   resetInteractiveTimeout();
-
+#ifndef SUNNYPILOT
   QObject::connect(uiState(), &UIState::uiUpdate, this, &Device::update);
+#endif
 }
 
 void Device::update(const UIState &s) {
@@ -137,14 +166,19 @@ void Device::setAwake(bool on) {
 }
 
 void Device::resetInteractiveTimeout(int timeout) {
+  int customTimeout = QString::fromStdString(Params().get("InteractivityTimeout")).toInt();
   if (timeout == -1) {
-    timeout = (ignition_on ? 10 : 30);
+    timeout = customTimeout == 0 ? (ignition_on ? 10 : 30) : customTimeout;
   }
   interactive_timeout = timeout * UI_FREQ;
 }
 
 void Device::updateBrightness(const UIState &s) {
+  int brightness;
+  int brightness_override = QString::fromStdString(Params().get("Brightness")).toInt();
   float clipped_brightness = offroad_brightness;
+  auto params = Params();
+  bool dark_mode = params.getBool("DarkMode");
   if (s.scene.started && s.scene.light_sensor >= 0) {
     clipped_brightness = s.scene.light_sensor;
 
@@ -155,14 +189,33 @@ void Device::updateBrightness(const UIState &s) {
       clipped_brightness = std::pow((clipped_brightness + 16.0) / 116.0, 3.0);
     }
 
-    // Scale back to 10% to 100%
-    clipped_brightness = std::clamp(100.0f * clipped_brightness, 10.0f, 100.0f);
+    if (brightness_override == 1) {
+      clipped_brightness = std::clamp(100.0f * clipped_brightness, 1.0f, 100.0f);  // Scale back to 1% to 100%
+    } else if (brightness_override == 0) {
+      clipped_brightness = std::clamp(100.0f * clipped_brightness, 10.0f, 100.0f);  // Scale back to 10% to 100%
+    }
+  }
+  
+  if (s.scene.started && dark_mode) {
+    clipped_brightness = 1.0f;
   }
 
-  int brightness = brightness_filter.update(clipped_brightness);
+  if (brightness_override == 0 || brightness_override == 1) {
+    brightness = brightness_filter.update(clipped_brightness);
+  } else {
+    brightness = brightness_override;
+  }
+
   if (!awake) {
     brightness = 0;
   }
+
+  // Onroad Brightness Control
+#ifdef SUNNYPILOT
+  if (awake && s.scene.started && s.scene.onroadScreenOffControl && s.scene.onroadScreenOffTimer == 0) {
+    brightness = s.scene.onroadScreenOffBrightness * 0.01 * brightness;
+  }
+#endif
 
   if (brightness != last_brightness) {
     if (!brightness_future.isRunning()) {
@@ -174,17 +227,24 @@ void Device::updateBrightness(const UIState &s) {
 
 void Device::updateWakefulness(const UIState &s) {
   bool ignition_just_turned_off = !s.scene.ignition && ignition_on;
+  bool ignition_just_turned_on = s.scene.ignition && !ignition_on;
   ignition_on = s.scene.ignition;
 
-  if (ignition_just_turned_off) {
+  auto params = Params();
+  bool enable_screen_event = params.getBool("EnableScreenEvent");
+  bool disable_screen_timer = params.getBool("DisableScreenTimer");
+
+  if (ignition_just_turned_off || ignition_just_turned_on && disable_screen_timer || enable_screen_event) {
     resetInteractiveTimeout();
+    params.putBool("EnableScreenEvent", false);
   } else if (interactive_timeout > 0 && --interactive_timeout == 0) {
     emit interactiveTimeout();
   }
 
-  setAwake(s.scene.ignition || interactive_timeout > 0);
+  setAwake(s.scene.ignition && !disable_screen_timer || interactive_timeout > 0);
 }
 
+#ifndef SUNNYPILOT
 UIState *uiState() {
   static UIState ui_state;
   return &ui_state;
@@ -194,3 +254,4 @@ Device *device() {
   static Device _device;
   return &_device;
 }
+#endif

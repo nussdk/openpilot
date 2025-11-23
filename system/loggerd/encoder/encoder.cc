@@ -11,7 +11,6 @@ VideoEncoder::VideoEncoder(const EncoderInfo &encoder_info, int in_width, int in
 
 void VideoEncoder::publisher_publish(int segment_num, uint32_t idx, VisionIpcBufExtra &extra,
                                      unsigned int flags, kj::ArrayPtr<capnp::byte> header, kj::ArrayPtr<capnp::byte> dat) {
-  // broadcast packet
   MessageBuilder msg;
   auto event = msg.initEvent(true);
   auto edat = (event.*(encoder_info.init_encode_data_func))();
@@ -22,7 +21,7 @@ void VideoEncoder::publisher_publish(int segment_num, uint32_t idx, VisionIpcBuf
   edata.setFrameId(extra.frame_id);
   edata.setTimestampSof(extra.timestamp_sof);
   edata.setTimestampEof(extra.timestamp_eof);
-  edata.setType(encoder_info.encode_type);
+  edata.setType(encoder_info.get_settings(in_width).encode_type);
   edata.setEncodeId(cnt++);
   edata.setSegmentNum(segment_num);
   edata.setSegmentId(idx);

@@ -14,11 +14,8 @@ void CameraBuf::init(cl_device_id device_id, cl_context context, SpectraCamera *
 
   const SensorInfo *sensor = cam->sensor.get();
 
-  is_raw = cam->output_type == ISP_RAW_OUTPUT;
-  frame_metadata = std::make_unique<FrameMetadata[]>(frame_buf_count);
-
   // RAW frames from ISP
-  if (cam->output_type != ISP_IFE_PROCESSED) {
+  if (cam->cc.output_type != ISP_IFE_PROCESSED) {
     camera_bufs_raw = std::make_unique<VisionBuf[]>(frame_buf_count);
 
     const int raw_frame_size = (sensor->frame_height + sensor->extra_height) * sensor->frame_stride;
@@ -28,9 +25,6 @@ void CameraBuf::init(cl_device_id device_id, cl_context context, SpectraCamera *
     }
     LOGD("allocated %d CL buffers", frame_buf_count);
   }
-
-  out_img_width = sensor->frame_width;
-  out_img_height = sensor->hdr_offset > 0 ? (sensor->frame_height - sensor->hdr_offset) / 2 : sensor->frame_height;
 
   // the encoder HW tells us the size it wants after setting it up.
   // TODO: VENUS_BUFFER_SIZE should give the size, but it's too small. dependent on encoder settings?
@@ -48,21 +42,14 @@ CameraBuf::~CameraBuf() {
   }
 }
 
-bool CameraBuf::acquire() {
-  if (!safe_queue.try_pop(cur_buf_idx, 0)) return false;
+void CameraBuf::sendFrameToVipc() {
+  assert(cur_buf_idx >=0 && cur_buf_idx < frame_buf_count);
 
-  if (frame_metadata[cur_buf_idx].frame_id == -1) {
-    LOGE("no frame data? wtf");
-    return false;
-  }
-
-  cur_frame_data = frame_metadata[cur_buf_idx];
   if (camera_bufs_raw) {
     cur_camera_buf = &camera_bufs_raw[cur_buf_idx];
   }
 
   cur_yuv_buf = vipc_server->get_buffer(stream_type, cur_buf_idx);
-  cur_frame_data.processing_time = (double)(cur_frame_data.timestamp_end_of_isp - cur_frame_data.timestamp_eof)*1e-9;
 
   VisionIpcBufExtra extra = {
     cur_frame_data.frame_id,
@@ -71,12 +58,6 @@ bool CameraBuf::acquire() {
   };
   cur_yuv_buf->set_frame_id(cur_frame_data.frame_id);
   vipc_server->send(cur_yuv_buf, &extra);
-
-  return true;
-}
-
-void CameraBuf::queue(size_t buf_idx) {
-  safe_queue.push(buf_idx);
 }
 
 // common functions

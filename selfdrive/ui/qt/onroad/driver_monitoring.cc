@@ -21,7 +21,7 @@ static const QColor DMON_ENGAGED_COLOR = QColor::fromRgbF(0.1, 0.945, 0.26);
 static const QColor DMON_DISENGAGED_COLOR = QColor::fromRgbF(0.545, 0.545, 0.545);
 
 DriverMonitorRenderer::DriverMonitorRenderer() : face_kpts_draw(std::size(DEFAULT_FACE_KPTS_3D)) {
-  dm_img = loadPixmap("../assets/img_driver_face.png", {img_size + 5, img_size + 5});
+  dm_img = loadPixmap("../assets/icons/driver_face.png", {img_size + 5, img_size + 5});
 }
 
 void DriverMonitorRenderer::updateState(const UIState &s) {
@@ -72,6 +72,11 @@ void DriverMonitorRenderer::draw(QPainter &painter, const QRect &surface_rect) {
   float x = is_rhd ? surface_rect.width() - offset : offset;
   float y = surface_rect.height() - offset;
   float opacity = is_active ? 0.65f : 0.2f;
+
+#ifdef SUNNYPILOT
+  const int dev_ui_info = uiStateSP()->scene.dev_ui_info;
+  y -= dev_ui_info > 1 ? 50 : 0;
+#endif
 
   drawIcon(painter, QPoint(x, y), dm_img, QColor(0, 0, 0, 70), opacity);
 

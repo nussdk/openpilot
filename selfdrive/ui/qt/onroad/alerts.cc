@@ -1,4 +1,5 @@
 #include "selfdrive/ui/qt/onroad/alerts.h"
+#include "common/params.h"
 
 #include <QPainter>
 #include <map>
@@ -10,6 +11,8 @@ void OnroadAlerts::updateState(const UIState &s) {
   if (!alert.equal(a)) {
     alert = a;
     update();
+    auto params = Params();
+    params.putBool("EnableScreenEvent", true);
   }
 }
 
@@ -35,7 +38,7 @@ OnroadAlerts::Alert OnroadAlerts::getAlert(const SubMaster &sm, uint64_t started
     // Handle selfdrive timeout
     if (selfdrive_frame < started_frame) {
       // car is started, but selfdriveState hasn't been seen at all
-      a = {tr("openpilot Unavailable"), tr("Waiting to start"),
+      a = {tr("sunnypilot Unavailable"), tr("Waiting to start"),
            "selfdriveWaiting", cereal::SelfdriveState::AlertSize::MID,
            cereal::SelfdriveState::AlertStatus::NORMAL};
     } else if (ss_missing > SELFDRIVE_STATE_TIMEOUT && !Hardware::PC()) {

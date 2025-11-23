@@ -13,8 +13,6 @@
 
 class HardwareTici : public HardwareNone {
 public:
-  static constexpr float MAX_VOLUME = 0.9;
-  static constexpr float MIN_VOLUME = 0.1;
   static bool TICI() { return true; }
   static bool AGNOS() { return true; }
   static std::string get_os_version() {
@@ -75,7 +73,8 @@ public:
       return;
     }
 
-    int value = util::map_val(std::clamp(percent, 0, 100), 0, 100, 0, 255);
+    int value = util::map_val(std::clamp(percent, 0, 100), 0, 100, 0, 300);
+    std::ofstream("/sys/class/leds/led:switch_2/brightness") << 0 << "\n";
     std::ofstream("/sys/class/leds/led:torch_2/brightness") << value << "\n";
     std::ofstream("/sys/class/leds/led:switch_2/brightness") << value << "\n";
   }
@@ -108,11 +107,4 @@ public:
 
   static bool get_ssh_enabled() { return Params().getBool("SshEnabled"); }
   static void set_ssh_enabled(bool enabled) { Params().putBool("SshEnabled", enabled); }
-
-  static void config_cpu_rendering(bool offscreen) {
-    if (offscreen) {
-      setenv("QT_QPA_PLATFORM", "eglfs", 1); // offscreen doesn't work with EGL/GLES
-    }
-    setenv("LP_NUM_THREADS", "0", 1); // disable threading so we stay on our assigned CPU
-  }
 };
