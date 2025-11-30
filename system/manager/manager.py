@@ -8,7 +8,8 @@ import traceback
 from cereal import log
 import cereal.messaging as messaging
 import openpilot.system.sentry as sentry
-from openpilot.common.params import Params, ParamKeyType
+from openpilot.common.utils import atomic_write
+from openpilot.common.params import Params, ParamKeyFlag
 from openpilot.common.text_window import TextWindow
 from openpilot.system.hardware import HARDWARE
 from openpilot.system.manager.helpers import unblock_stdout, write_onroad_params, save_bootlog
@@ -161,6 +162,14 @@ def manager_thread() -> None:
     msg = messaging.new_message('managerState', valid=True)
     msg.managerState.processes = [p.get_process_state_msg() for p in managed_processes.values()]
     pm.send('managerState', msg)
+
+    # kick AGNOS power monitoring watchdog
+    try:
+      if sm.all_checks(['deviceState']):
+        with atomic_write("/var/tmp/power_watchdog", "w", overwrite=True) as f:
+          f.write(str(time.monotonic()))
+    except Exception:
+      pass
 
     # Exit main loop when uninstall/shutdown/reboot is needed
     shutdown = False
